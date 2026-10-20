@@ -1,0 +1,6 @@
+{
+  "name": "Grandmaster 3D Chess — Obsidian & Gold Edition",
+  "description": "A luxury 3D WebGL chess application featuring procedural Staunton geometries, full chess rules, and a 4-tier AI engine including an unbeatable Grandmaster God Mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
