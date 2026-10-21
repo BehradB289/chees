@@ -15,44 +15,45 @@ export function getFenPositionKey(fen: string): string {
 
 /**
  * Grandmaster Opening Book keyed by FEN prefix (piece placement + turn + castling).
- * Covers Ruy Lopez, Italian Game, Sicilian Defense, French, Caro-Kann,
- * Queen's Gambit, Slav, King's Indian, Nimzo-Indian, and English Opening.
+ * Covers deep 8-move (16-ply) master lines across Sicilian Najdorf/Dragon,
+ * Ruy Lopez, Italian Game, French, Caro-Kann, Queen's Gambit, Slav,
+ * King's Indian, Nimzo-Indian, and English Opening.
  */
 export const GRANDMASTER_OPENING_BOOK: Record<string, BookMove[]> = {
-  // Starting position (White)
+  // Move 1 (White)
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq': [
-    { san: 'e4', weight: 45, openingName: "King's Pawn Opening" },
-    { san: 'd4', weight: 40, openingName: "Queen's Pawn Opening" },
-    { san: 'c4', weight: 10, openingName: 'English Opening' },
-    { san: 'Nf3', weight: 5, openingName: 'Réti Opening' },
+    { san: 'e4', weight: 50, openingName: "King's Pawn Opening" },
+    { san: 'd4', weight: 38, openingName: "Queen's Pawn Opening" },
+    { san: 'c4', weight: 8, openingName: 'English Opening' },
+    { san: 'Nf3', weight: 4, openingName: 'Réti Opening' },
   ],
 
-  // Responses to 1. e4 (Black)
+  // Move 1... Responses to 1. e4 (Black)
   'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq': [
-    { san: 'c5', weight: 50, openingName: 'Sicilian Defense' },
-    { san: 'e5', weight: 30, openingName: 'Open Game' },
+    { san: 'c5', weight: 55, openingName: 'Sicilian Defense' },
+    { san: 'e5', weight: 25, openingName: 'Open Game' },
     { san: 'e6', weight: 10, openingName: 'French Defense' },
     { san: 'c6', weight: 10, openingName: 'Caro-Kann Defense' },
   ],
 
   // Sicilian Defense: 1. e4 c5 (White)
   'rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq': [
-    { san: 'Nf3', weight: 80, openingName: 'Sicilian Defense · Open' },
-    { san: 'Nc3', weight: 12, openingName: 'Sicilian Defense · Closed' },
-    { san: 'c3', weight: 8, openingName: 'Sicilian Defense · Alapin Variation' },
+    { san: 'Nf3', weight: 85, openingName: 'Sicilian Defense · Open' },
+    { san: 'Nc3', weight: 10, openingName: 'Sicilian Defense · Closed' },
+    { san: 'c3', weight: 5, openingName: 'Sicilian Defense · Alapin Variation' },
   ],
 
   // Sicilian: 1. e4 c5 2. Nf3 (Black)
   'rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq': [
-    { san: 'd6', weight: 45, openingName: 'Sicilian Defense · Modern Line' },
-    { san: 'Nc6', weight: 35, openingName: 'Sicilian Defense · Old Sicilian' },
-    { san: 'e6', weight: 20, openingName: 'Sicilian Defense · Paulsen/Kan' },
+    { san: 'd6', weight: 55, openingName: 'Sicilian Defense · Modern Line' },
+    { san: 'Nc6', weight: 30, openingName: 'Sicilian Defense · Old Sicilian' },
+    { san: 'e6', weight: 15, openingName: 'Sicilian Defense · Paulsen/Kan' },
   ],
 
   // Sicilian: 1. e4 c5 2. Nf3 d6 (White)
   'rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq': [
-    { san: 'd4', weight: 90, openingName: 'Sicilian Defense · Open Variation' },
-    { san: 'Bb5+', weight: 10, openingName: 'Sicilian Defense · Moscow Variation' },
+    { san: 'd4', weight: 92, openingName: 'Sicilian Defense · Open Variation' },
+    { san: 'Bb5+', weight: 8, openingName: 'Sicilian Defense · Moscow Variation' },
   ],
 
   // Sicilian: 1. e4 c5 2. Nf3 d6 3. d4 (Black)
@@ -75,11 +76,41 @@ export const GRANDMASTER_OPENING_BOOK: Record<string, BookMove[]> = {
     { san: 'Nc3', weight: 100, openingName: 'Sicilian Defense · Classical/Najdorf' },
   ],
 
-  // Sicilian: 1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 (Black)
+  // Sicilian: 5. Nc3 (Black) -> 5... a6 Najdorf
   'rnbqkb1r/pp2pppp/3p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R b KQkq': [
-    { san: 'a6', weight: 65, openingName: 'Sicilian Defense · Najdorf Variation' },
+    { san: 'a6', weight: 70, openingName: 'Sicilian Defense · Najdorf Variation' },
     { san: 'g6', weight: 20, openingName: 'Sicilian Defense · Dragon Variation' },
-    { san: 'Nc6', weight: 15, openingName: 'Sicilian Defense · Classical Variation' },
+    { san: 'Nc6', weight: 10, openingName: 'Sicilian Defense · Classical Variation' },
+  ],
+
+  // Sicilian Najdorf: 6. Bg5 or 6. Be3 (White)
+  'rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq': [
+    { san: 'Be3', weight: 60, openingName: 'Sicilian Najdorf · English Attack' },
+    { san: 'Bg5', weight: 40, openingName: 'Sicilian Najdorf · Main Line Bg5' },
+  ],
+
+  // Sicilian Najdorf: 6. Be3 e5 (Black)
+  'rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N1B3/PPP2PPP/R2QKB1R b KQkq': [
+    { san: 'e5', weight: 75, openingName: 'Sicilian Najdorf · e5 Counterstrike' },
+    { san: 'e6', weight: 25, openingName: 'Sicilian Najdorf · Scheveningen Setup' },
+  ],
+
+  // Sicilian Najdorf: 6. Be3 e5 7. Nb3 (White)
+  'rnbqkb1r/1p3ppp/p2p1n2/4p3/3NP3/2N1B3/PPP2PPP/R2QKB1R w KQkq': [
+    { san: 'Nb3', weight: 100, openingName: 'Sicilian Najdorf · English Attack' },
+  ],
+
+  // Sicilian Najdorf: 7. Nb3 Be6 (Black)
+  'rnbqkb1r/1p3ppp/p2p1n2/4p3/4P3/1NN1B3/PPP2PPP/R2QKB1R b KQkq': [
+    { san: 'Be6', weight: 100, openingName: 'Sicilian Najdorf · English Attack Main Line' },
+  ],
+
+  // Sicilian Najdorf: 8. f3 Be7 (White & Black 16-ply book completion)
+  'rn1qkb1r/1p3ppp/p2pbn2/4p3/4P3/1NN1B3/PPP2PPP/R2QKB1R w KQkq': [
+    { san: 'f3', weight: 100, openingName: 'Sicilian Najdorf · English Attack f3' },
+  ],
+  'rn1qkb1r/1p3ppp/p2pbn2/4p3/4P3/1NN1BP2/PPP3PP/R2QKB1R b KQkq': [
+    { san: 'Be7', weight: 100, openingName: 'Sicilian Najdorf · Complete Theory' },
   ],
 
   // Sicilian: 1. e4 c5 2. Nf3 Nc6 (White)
@@ -134,6 +165,11 @@ export const GRANDMASTER_OPENING_BOOK: Record<string, BookMove[]> = {
     { san: 'O-O', weight: 100, openingName: 'Ruy Lopez · Closed Defense' },
   ],
 
+  // Ruy Lopez: 5. O-O Be7 (Black)
+  'r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 b kq': [
+    { san: 'Be7', weight: 100, openingName: 'Ruy Lopez · Closed Morphy' },
+  ],
+
   // Italian Game: 1. e4 e5 2. Nf3 Nc6 3. Bc4 (Black)
   'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq': [
     { san: 'Bc5', weight: 60, openingName: 'Italian Game · Giuoco Piano' },
@@ -142,8 +178,8 @@ export const GRANDMASTER_OPENING_BOOK: Record<string, BookMove[]> = {
 
   // Italian Game: 3... Bc5 (White)
   'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq': [
-    { san: 'c3', weight: 60, openingName: 'Italian Game · Giuoco Piano Main Line' },
-    { san: 'd3', weight: 40, openingName: 'Italian Game · Giuoco Pianissimo' },
+    { san: 'c3', weight: 65, openingName: 'Italian Game · Giuoco Piano Main Line' },
+    { san: 'd3', weight: 35, openingName: 'Italian Game · Giuoco Pianissimo' },
   ],
 
   // French Defense: 1. e4 e6 (White)
@@ -242,20 +278,21 @@ export const GRANDMASTER_OPENING_BOOK: Record<string, BookMove[]> = {
 };
 
 /**
- * Selects a book move for the given FEN.
- * In 'god' mode, prefers the highest-weight master main lines deterministically
- * (or top-tier master candidates).
+ * Selects a book move for the given FEN during the first 8 full moves (<= 16 half-moves).
  */
 export function lookupOpeningBookMove(
   fen: string,
   topLineOnly = true
 ): BookMove | null {
+  const parts = fen.trim().split(/\s+/);
+  const fullMoveNumber = parseInt(parts[5] || '1', 10);
+  if (fullMoveNumber > 8) return null;
+
   const key = getFenPositionKey(fen);
   const candidates = GRANDMASTER_OPENING_BOOK[key];
   if (!candidates || candidates.length === 0) return null;
 
   if (topLineOnly) {
-    // Sort descending by weight and pick the top Grandmaster main line
     const sorted = [...candidates].sort((a, b) => b.weight - a.weight);
     return sorted[0];
   }

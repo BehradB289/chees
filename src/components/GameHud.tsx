@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Color, Move, PieceSymbol } from 'chess.js';
+import { type Color, type Move, type PieceSymbol } from 'chess.js';
 import {
   Volume2,
   VolumeX,
@@ -12,9 +12,30 @@ import {
   Pause,
   Play,
   ListOrdered,
+  Trophy,
+  Wifi,
+  Flag,
+  Handshake,
+  Clock,
+  MessageSquare,
+  Send,
+  Eye,
+  X,
 } from 'lucide-react';
-import { AIDifficulty, AI_DIFFICULTIES } from '../engine/chessAI.ts';
-import { CapturedAndMaterialInfo } from '../engine/evaluation.ts';
+import { type AIDifficulty, AI_DIFFICULTIES } from '../engine/chessAI.ts';
+import { type CapturedAndMaterialInfo } from '../engine/evaluation.ts';
+import {
+  type PlayerProfile,
+  AVATAR_OPTIONS,
+  getRankTierByElo,
+  getDetailedRankBadge,
+  calculateLevelFromXp,
+  getPlayerStanding,
+} from '../progression/progression.ts';
+import {
+  type TimeControlId,
+  STICKER_PRESETS,
+} from '../multiplayer/peerManager.ts';
 import { PieceSvgIcon } from './ChessIcons.tsx';
 
 export interface MoveLogPair {
@@ -23,10 +44,51 @@ export interface MoveLogPair {
   black?: string;
 }
 
+export interface MatchProgressionSummary {
+  eloDelta: number;
+  xpEarned: number;
+  leveledUp: boolean;
+  tierChanged: boolean;
+}
+
+export interface EmoteBubbleItem {
+  id: string;
+  sender: 'player' | 'opponent';
+  senderName: string;
+  emoji: string;
+  text: string;
+}
+
+export interface ChatLogEntry {
+  id: string;
+  sender: 'player' | 'opponent';
+  senderName: string;
+  text: string;
+  emoji?: string;
+}
+
+function formatClockMs(ms: number): string {
+  const clamped = Math.max(0, Math.ceil(ms / 1000));
+  const mins = Math.floor(clamped / 60);
+  const secs = clamped % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 export interface GameHudProps {
   gameState: 'title' | 'playing' | 'paused' | 'gameover';
+  matchMode: 'ai' | 'pvp';
   difficulty: AIDifficulty;
+  timeControl: TimeControlId;
   playerColor: Color;
+  playerProfile: PlayerProfile;
+  opponentProfile: PlayerProfile | null;
+  p2pRoomCode: string;
+  p2pPingMs: number | null;
+  p2pConnected: boolean;
+  incomingDrawOffer: boolean;
+  incomingRematchRequest: boolean;
+  whiteTimeMs: number;
+  blackTimeMs: number;
   turn: Color;
   inCheck: boolean;
   isAIThinking: boolean;
@@ -39,11 +101,14 @@ export interface GameHudProps {
   totalHalfMoves: number;
   canUndo: boolean;
   soundEnabled: boolean;
+  activeEmoteBubble: EmoteBubbleItem | null;
+  chatLog: ChatLogEntry[];
   gameOverInfo: {
     title: string;
     subtitle: string;
     winner: Color | 'draw' | null;
   } | null;
+  matchProgression: MatchProgressionSummary | null;
   pendingPromotion: { from: string; to: string; color: Color } | null;
   onSelectPromotion: (piece: 'q' | 'r' | 'b' | 'n') => void;
   onCancelPromotion: () => void;
@@ -55,12 +120,31 @@ export interface GameHudProps {
   onOpenNewGameMenu: () => void;
   onQuickRematch: () => void;
   onTogglePause: () => void;
+  onOpenLeaderboard: () => void;
+  onInspectOpponent: () => void;
+  onSendSticker: (stickerId: string) => void;
+  onSendChatMessage: (text: string) => void;
+  onResignMatch: () => void;
+  onOfferDraw: () => void;
+  onAcceptDraw: () => void;
+  onDeclineDraw: () => void;
 }
 
 export const GameHud: React.FC<GameHudProps> = ({
   gameState,
+  matchMode,
   difficulty,
+  timeControl,
   playerColor,
+  playerProfile,
+  opponentProfile,
+  p2pRoomCode,
+  p2pPingMs,
+  p2pConnected,
+  incomingDrawOffer,
+  incomingRematchRequest,
+  whiteTimeMs,
+  blackTimeMs,
   turn,
   inCheck,
   isAIThinking,
@@ -73,7 +157,10 @@ export const GameHud: React.FC<GameHudProps> = ({
   totalHalfMoves,
   canUndo,
   soundEnabled,
+  activeEmoteBubble,
+  chatLog,
   gameOverInfo,
+  matchProgression,
   pendingPromotion,
   onSelectPromotion,
   onCancelPromotion,
@@ -85,44 +172,119 @@ export const GameHud: React.FC<GameHudProps> = ({
   onOpenNewGameMenu,
   onQuickRematch,
   onTogglePause,
+  onOpenLeaderboard,
+  onInspectOpponent,
+  onSendSticker,
+  onSendChatMessage,
+  onResignMatch,
+  onOfferDraw,
+  onAcceptDraw,
+  onDeclineDraw,
 }) => {
   const [hudCollapsed, setHudCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [chatTrayOpen, setChatTrayOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
 
   const tierMeta = AI_DIFFICULTIES.find((d) => d.id === difficulty) || AI_DIFFICULTIES[1];
-  const isGod = difficulty === 'god';
+  const isGod = matchMode === 'ai' && difficulty === 'god';
   const isPlayerTurn = turn === playerColor && gameState === 'playing' && !isAIThinking;
+  const isUnlimitedClock = timeControl === 'unlimited';
 
-  // Format advantage text
   const whiteAdv = capturedInfo.advantage > 0 ? `+${capturedInfo.advantage}` : '';
   const blackAdv = capturedInfo.advantage < 0 ? `+${Math.abs(capturedInfo.advantage)}` : '';
 
+  const playerTier = getRankTierByElo(playerProfile.elo);
+  const playerDetailedBadge = getDetailedRankBadge(playerProfile.elo);
+  const playerStanding = getPlayerStanding(playerProfile);
+  const playerLvl = calculateLevelFromXp(playerProfile.xp);
+
+  // Opponent display metadata (Clickable Pill in Top Bar)
+  const oppElo =
+    matchMode === 'pvp'
+      ? opponentProfile?.elo ?? 1000
+      : tierMeta.numericElo;
+  const oppTier = getRankTierByElo(oppElo);
+  const oppBadge = getDetailedRankBadge(oppElo);
+  const oppName =
+    matchMode === 'pvp'
+      ? opponentProfile?.username || p2pRoomCode || 'Online Peer'
+      : `Stockfish · ${tierMeta.name}`;
+
+  const oppAvatarOption =
+    matchMode === 'pvp' && opponentProfile
+      ? AVATAR_OPTIONS.find((a) => a.id === opponentProfile.avatarId) || AVATAR_OPTIONS[2]
+      : isGod
+      ? AVATAR_OPTIONS[5]
+      : AVATAR_OPTIONS[2];
+
+  const handleChatSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    onSendChatMessage(trimmed);
+    setChatInput('');
+  };
+
   return (
     <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between">
-      {/* TOP STATUS BAR: Compact, single-elevation dark obsidian strip */}
-      <div className="w-full px-3 pt-2.5 sm:px-5 sm:pt-3.5 flex items-start justify-between gap-3">
-        {/* Left/Center Status & Opponent Readout */}
+      {/* TOP STATUS BAR: Clickable Opponent Profile Header Pill + Turn + Clocks + Utilities */}
+      <div className="w-full px-2.5 pt-2.5 sm:px-5 sm:pt-3.5 flex flex-wrap sm:flex-nowrap items-start justify-between gap-2">
         <div
-          className="pointer-events-auto flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3.5 py-2 rounded-xl border border-slate-800/90 shadow-xl max-w-full"
-          style={{ backgroundColor: 'rgba(11, 14, 22, 0.92)' }}
+          className="pointer-events-auto flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-800/90 shadow-xl flex-1 sm:flex-initial min-w-0"
+          style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
         >
-          {/* Opponent Tier */}
-          <div className="flex items-center gap-2">
+          {/* CLICKABLE OPPONENT PROFILE PILL */}
+          <button
+            type="button"
+            onClick={onInspectOpponent}
+            data-testid="opponent-profile-pill"
+            aria-label={`Inspect Opponent Profile: ${oppName}`}
+            title="Click to inspect opponent profile & career record"
+            className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 rounded-lg bg-slate-900/95 border border-slate-800 hover:border-amber-400/60 transition-colors cursor-pointer max-w-full overflow-hidden"
+          >
+            <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-md bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+              <PieceSvgIcon
+                type={oppAvatarOption.pieceType}
+                color={oppAvatarOption.pieceColor}
+                className="w-3.5 h-3.5"
+              />
+            </span>
             <span
-              className={`text-xs sm:text-sm font-bold tracking-tight whitespace-nowrap ${
-                isGod ? 'text-red-300' : 'text-amber-300'
+              className={`text-xs sm:text-sm font-bold tracking-tight truncate max-w-[88px] sm:max-w-[140px] ${
+                isGod ? 'text-red-300' : 'text-amber-200'
               }`}
               style={isGod ? { fontFamily: '"Cinzel", Georgia, serif' } : undefined}
             >
-              {tierMeta.name}
+              {oppName}
             </span>
-            <span className="text-slate-600" aria-hidden="true">
-              ·
+            <span
+              className={`hidden md:inline-block text-[11px] font-semibold px-1.5 py-0.2 rounded border shrink-0 ${oppTier.borderClass} ${oppTier.bgClass} ${oppTier.textClass}`}
+            >
+              {oppBadge}
             </span>
-            <span className="text-xs font-mono tabular-nums text-slate-400 whitespace-nowrap">
-              {tierMeta.elo}
+            <span className="text-[11px] sm:text-xs font-mono font-bold tabular-nums text-amber-300 whitespace-nowrap shrink-0">
+              {oppElo.toLocaleString('en-US')} ELO
             </span>
-          </div>
+            <Eye className="w-3.5 h-3.5 text-slate-400 hidden sm:inline shrink-0" />
+          </button>
+
+          {matchMode === 'pvp' && (
+            <span
+              className={`inline-flex items-center gap-1 text-[11px] font-mono tabular-nums px-1.5 py-0.5 rounded ${
+                p2pConnected
+                  ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-red-950/70 text-red-300 border border-red-500/40'
+              }`}
+            >
+              <Wifi className="w-3 h-3" />
+              {p2pConnected
+                ? p2pPingMs !== null
+                  ? `${p2pPingMs}ms`
+                  : 'LIVE'
+                : 'OFFLINE'}
+            </span>
+          )}
 
           <span className="hidden sm:inline text-slate-700" aria-hidden="true">
             |
@@ -130,13 +292,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
           {/* Live Turn & Check Status Indicator */}
           <div
-            className="flex items-center gap-2 text-xs sm:text-sm font-semibold whitespace-nowrap"
+            className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-semibold whitespace-nowrap"
             data-testid="turn-status-banner"
           >
             <PieceSvgIcon type="k" color={turn} className="w-4 h-4 shrink-0" />
             <span className="text-slate-100">
               {isAIThinking
-                ? 'AI Thinking...'
+                ? 'Stockfish Calculating...'
                 : turn === 'w'
                 ? 'White to Move'
                 : 'Black to Move'}
@@ -148,12 +310,54 @@ export const GameHud: React.FC<GameHudProps> = ({
             )}
           </div>
 
+          <span className="hidden sm:inline text-slate-700" aria-hidden="true">
+            |
+          </span>
+
+          {/* Live Dual Chess Clocks OR Unlimited (∞) Casual Badge */}
+          <div
+            className="flex items-center gap-1.5 sm:gap-2 text-xs font-mono tabular-nums"
+            data-testid="chess-clocks"
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-400 hidden sm:inline shrink-0" />
+            {isUnlimitedClock ? (
+              <span className="px-2 py-0.5 rounded border border-slate-800 bg-slate-900/90 text-amber-300 font-semibold text-[11px] sm:text-xs">
+                ∞ Unlimited
+              </span>
+            ) : (
+              <>
+                <span
+                  className={`px-2 py-0.5 rounded border ${
+                    turn === 'w' && gameState === 'playing'
+                      ? whiteTimeMs < 30000
+                        ? 'border-red-500 bg-red-950/60 text-red-200 font-bold'
+                        : 'border-amber-400/70 bg-amber-500/15 text-amber-200 font-bold'
+                      : 'border-slate-800 bg-slate-900/80 text-slate-400'
+                  }`}
+                >
+                  W {formatClockMs(whiteTimeMs)}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded border ${
+                    turn === 'b' && gameState === 'playing'
+                      ? blackTimeMs < 30000
+                        ? 'border-red-500 bg-red-950/60 text-red-200 font-bold'
+                        : 'border-amber-400/70 bg-amber-500/15 text-amber-200 font-bold'
+                      : 'border-slate-800 bg-slate-900/80 text-slate-400'
+                  }`}
+                >
+                  B {formatClockMs(blackTimeMs)}
+                </span>
+              </>
+            )}
+          </div>
+
           {/* Captured Pieces & Material Advantage Summary */}
-          <span className="hidden md:inline text-slate-700" aria-hidden="true">
+          <span className="hidden lg:inline text-slate-700" aria-hidden="true">
             |
           </span>
           <div
-            className="hidden md:flex items-center gap-3 text-xs tabular-nums"
+            className="hidden lg:flex items-center gap-2.5 text-xs tabular-nums"
             data-testid="material-summary"
           >
             <div className="flex items-center gap-1" title="Captured by White">
@@ -162,7 +366,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 {capturedInfo.capturedByWhite.length === 0 ? (
                   <span className="text-slate-600">—</span>
                 ) : (
-                  capturedInfo.capturedByWhite.slice(0, 8).map((p, i) => (
+                  capturedInfo.capturedByWhite.slice(0, 6).map((p, i) => (
                     <PieceSvgIcon key={i} type={p} color="b" className="w-3.5 h-3.5" />
                   ))
                 )}
@@ -184,7 +388,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 {capturedInfo.capturedByBlack.length === 0 ? (
                   <span className="text-slate-600">—</span>
                 ) : (
-                  capturedInfo.capturedByBlack.slice(0, 8).map((p, i) => (
+                  capturedInfo.capturedByBlack.slice(0, 6).map((p, i) => (
                     <PieceSvgIcon key={i} type={p} color="w" className="w-3.5 h-3.5" />
                   ))
                 )}
@@ -196,18 +400,47 @@ export const GameHud: React.FC<GameHudProps> = ({
               )}
             </div>
           </div>
-
-          {/* Opening Name */}
-          <span className="hidden lg:inline text-slate-700" aria-hidden="true">
-            |
-          </span>
-          <span className="hidden lg:inline text-xs text-slate-400 truncate max-w-[220px]">
-            {openingName}
-          </span>
         </div>
 
-        {/* Top-Right Utility Controls (Mute [M], Pause [P]) */}
+        {/* Top-Right Utility Controls (Chat/Stickers, Leaderboard, Mute [M], Pause [P]) */}
         <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            tabIndex={-1}
+            data-testid="toggle-chat-tray-btn"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setChatTrayOpen((prev) => !prev);
+            }}
+            aria-label="Toggle Chat and Stickers"
+            aria-expanded={chatTrayOpen}
+            title="Live Chat & Expressive Stickers"
+            className={`min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] px-2.5 rounded-xl border flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+              chatTrayOpen
+                ? 'border-amber-400 bg-amber-500/20 text-amber-200'
+                : 'border-slate-800/90 text-amber-300 hover:border-amber-400/60'
+            }`}
+            style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline text-xs font-semibold">Emotes</span>
+          </button>
+
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onOpenLeaderboard();
+            }}
+            aria-label="Open Leaderboard"
+            title="Real-Players Leaderboard"
+            className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] rounded-xl border border-slate-800/90 flex items-center justify-center text-amber-300 hover:border-amber-400/60 transition-colors cursor-pointer"
+            style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
+          >
+            <Trophy className="w-4 h-4" />
+          </button>
+
           <button
             type="button"
             tabIndex={-1}
@@ -217,10 +450,14 @@ export const GameHud: React.FC<GameHudProps> = ({
             }}
             aria-label={soundEnabled ? 'Mute Sound Effects' : 'Unmute Sound Effects'}
             title={soundEnabled ? 'Mute Audio [M]' : 'Unmute Audio [M]'}
-            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-800/90 flex items-center justify-center text-slate-300 hover:text-amber-300 hover:border-slate-700 transition-colors cursor-pointer"
-            style={{ backgroundColor: 'rgba(11, 14, 22, 0.92)' }}
+            className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] rounded-xl border border-slate-800/90 flex items-center justify-center text-slate-300 hover:text-amber-300 hover:border-slate-700 transition-colors cursor-pointer"
+            style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
+            {soundEnabled ? (
+              <Volume2 className="w-4 h-4" />
+            ) : (
+              <VolumeX className="w-4 h-4 text-slate-500" />
+            )}
           </button>
 
           <button
@@ -232,13 +469,155 @@ export const GameHud: React.FC<GameHudProps> = ({
             }}
             aria-label={gameState === 'paused' ? 'Resume Match' : 'Pause Match'}
             title="Pause Match [P / Esc]"
-            className="min-w-[44px] min-h-[44px] rounded-xl border border-slate-800/90 flex items-center justify-center text-slate-300 hover:text-amber-300 hover:border-slate-700 transition-colors cursor-pointer"
-            style={{ backgroundColor: 'rgba(11, 14, 22, 0.92)' }}
+            className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] rounded-xl border border-slate-800/90 flex items-center justify-center text-slate-300 hover:text-amber-300 hover:border-slate-700 transition-colors cursor-pointer"
+            style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
           >
-            {gameState === 'paused' ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+            {gameState === 'paused' ? (
+              <Play className="w-4 h-4" />
+            ) : (
+              <Pause className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>
+
+      {/* FLOATING BOUNCY STICKER / EMOTE BUBBLE OVERLAY */}
+      {activeEmoteBubble && (
+        <div
+          className="w-full flex justify-center px-4 pointer-events-none"
+          data-testid="active-emote-bubble"
+        >
+          <div
+            className={`px-4 py-2.5 rounded-2xl border shadow-2xl flex items-center gap-3 transition-all duration-300 ${
+              activeEmoteBubble.sender === 'opponent'
+                ? 'border-red-400/60 bg-slate-950/95 text-amber-100'
+                : 'border-amber-400/70 bg-slate-950/95 text-amber-100'
+            }`}
+          >
+            <span className="text-2xl">{activeEmoteBubble.emoji}</span>
+            <div>
+              <div className="text-[11px] font-bold text-amber-300">
+                {activeEmoteBubble.senderName}
+              </div>
+              <div className="text-xs sm:text-sm font-semibold text-slate-100">
+                {activeEmoteBubble.text}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING INTERACTIVE CHAT & STICKER TRAY */}
+      {chatTrayOpen && (
+        <div
+          className="fixed right-3 top-24 sm:right-5 sm:top-20 z-30 w-80 sm:w-96 rounded-2xl border border-amber-500/35 p-4 shadow-2xl pointer-events-auto"
+          style={{ backgroundColor: 'rgba(12, 16, 25, 0.97)' }}
+          role="dialog"
+          aria-label="Live Chat and Stickers"
+        >
+          <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-800">
+            <span className="text-xs sm:text-sm font-bold text-amber-200">
+              Expressive Stickers &amp; Live Chat
+            </span>
+            <button
+              type="button"
+              onClick={() => setChatTrayOpen(false)}
+              aria-label="Close Chat Tray"
+              className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 7 Clickable Stickers Grid */}
+          <div className="grid grid-cols-2 gap-1.5 mb-3">
+            {STICKER_PRESETS.map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                data-testid={`sticker-btn-${st.id}`}
+                onClick={() => onSendSticker(st.id)}
+                className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:bg-amber-500/10 flex items-center gap-2 text-left transition-colors cursor-pointer"
+              >
+                <span className="text-base shrink-0">{st.emoji}</span>
+                <span className="text-xs font-semibold text-slate-200 truncate">
+                  {st.label}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Recent Chat Log */}
+          <div className="h-28 rounded-xl bg-slate-950/90 border border-slate-800 p-2.5 mb-2.5 overflow-y-auto space-y-1.5 text-xs">
+            {chatLog.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-500 text-center">
+                Tap a sticker above or send a message to react in real time!
+              </div>
+            ) : (
+              chatLog.map((item) => (
+                <div key={item.id} className="leading-snug">
+                  <span
+                    className={`font-bold mr-1.5 ${
+                      item.sender === 'player' ? 'text-amber-300' : 'text-emerald-300'
+                    }`}
+                  >
+                    {item.senderName}:
+                  </span>
+                  <span className="text-slate-200">
+                    {item.emoji ? `${item.emoji} ` : ''}
+                    {item.text}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Live Text Chat Input */}
+          <form onSubmit={handleChatSubmit} className="flex items-center gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              maxLength={120}
+              placeholder="Send message..."
+              className="flex-1 min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-xs text-slate-100 focus:outline-none focus:border-amber-400"
+            />
+            <button
+              type="submit"
+              aria-label="Send Chat Message"
+              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* INCOMING DRAW OFFER PROMPT (P2P ONLINE) */}
+      {incomingDrawOffer && gameState === 'playing' && (
+        <div className="w-full flex justify-center px-4 pointer-events-auto">
+          <div className="px-4 py-3 rounded-xl border border-amber-400/60 bg-slate-950/95 shadow-2xl flex items-center gap-3">
+            <Handshake className="w-5 h-5 text-amber-300 shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold text-slate-100">
+              Opponent offers a Draw. Accept?
+            </span>
+            <button
+              type="button"
+              onClick={onAcceptDraw}
+              className="min-h-[38px] px-3 py-1 rounded-lg bg-emerald-400 text-slate-950 text-xs font-bold cursor-pointer"
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              onClick={onDeclineDraw}
+              className="min-h-[38px] px-3 py-1 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 text-xs font-semibold cursor-pointer"
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* BOTTOM UNIFIED CONTROL DOCK & COLLAPSIBLE DRAWER */}
       <div className="w-full flex flex-col items-center px-2.5 pb-2.5 sm:px-4 sm:pb-4">
@@ -250,7 +629,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               onClick={() => setHudCollapsed((prev) => !prev)}
               aria-expanded={!hudCollapsed}
               className="px-3 py-1 rounded-lg border border-slate-800/90 text-[11px] font-medium text-slate-300 hover:text-amber-300 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              style={{ backgroundColor: 'rgba(11, 14, 22, 0.92)' }}
+              style={{ backgroundColor: 'rgba(11, 14, 22, 0.94)' }}
             >
               {hudCollapsed ? (
                 <>
@@ -395,10 +774,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
               )}
 
-              {/* Primary Control Bar (All 5 controls visible on 390px mobile & desktop without horizontal scroll) */}
+              {/* Primary Control Bar */}
               <div className="px-2 py-2 sm:px-4 sm:py-2.5 grid grid-cols-5 sm:flex sm:items-center sm:justify-between gap-1.5 sm:gap-2">
                 <div className="contents sm:flex sm:items-center sm:gap-2">
-                  {/* New Game */}
+                  {/* New Game / Menu */}
                   <button
                     type="button"
                     onClick={onOpenNewGameMenu}
@@ -410,27 +789,70 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <span className="sm:hidden">New</span>
                   </button>
 
-                  {/* Undo Move (Strictly Disabled in God Mode) */}
-                  <button
-                    type="button"
-                    onClick={onUndoMove}
-                    disabled={!canUndo}
-                    aria-label={isGod ? 'Undo Locked in God Mode' : 'Undo Move'}
-                    title={
-                      isGod
-                        ? 'Undo is strictly locked in GOD MODE'
-                        : 'Undo last full turn'
-                    }
-                    className={`min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      canUndo
-                        ? 'border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:text-amber-200 text-slate-200 cursor-pointer'
-                        : 'border-slate-800/40 bg-slate-900/40 text-slate-600 cursor-not-allowed'
-                    }`}
-                  >
-                    <RotateCcw className="w-4 h-4 shrink-0" />
-                    <span className="hidden sm:inline">{isGod ? 'Undo Locked' : 'Undo Move'}</span>
-                    <span className="sm:hidden">{isGod ? 'Locked' : 'Undo'}</span>
-                  </button>
+                  {matchMode === 'pvp' ? (
+                    <>
+                      {/* Offer Draw in Online P2P */}
+                      <button
+                        type="button"
+                        onClick={onOfferDraw}
+                        aria-label="Offer Draw"
+                        className="min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:text-amber-200 text-[11px] sm:text-xs font-semibold text-slate-200 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <Handshake className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="hidden sm:inline">Offer Draw</span>
+                        <span className="sm:hidden">Draw</span>
+                      </button>
+
+                      {/* Resign in Online P2P */}
+                      <button
+                        type="button"
+                        onClick={onResignMatch}
+                        aria-label="Resign Match"
+                        className="min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border border-red-900/60 bg-slate-900 hover:border-red-500/60 hover:text-red-300 text-[11px] sm:text-xs font-semibold text-slate-200 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <Flag className="w-4 h-4 text-red-400 shrink-0" />
+                        <span>Resign</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Undo Move (Strictly Disabled in God Mode) */}
+                      <button
+                        type="button"
+                        onClick={onUndoMove}
+                        disabled={!canUndo}
+                        aria-label={isGod ? 'Undo Locked in God Mode' : 'Undo Move'}
+                        title={
+                          isGod
+                            ? 'Undo is strictly locked in GOD MODE'
+                            : 'Undo last full turn'
+                        }
+                        className={`min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                          canUndo
+                            ? 'border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:text-amber-200 text-slate-200 cursor-pointer'
+                            : 'border-slate-800/40 bg-slate-900/40 text-slate-600 cursor-not-allowed'
+                        }`}
+                      >
+                        <RotateCcw className="w-4 h-4 shrink-0" />
+                        <span className="hidden sm:inline">
+                          {isGod ? 'Undo Locked' : 'Undo Move'}
+                        </span>
+                        <span className="sm:hidden">{isGod ? 'Locked' : 'Undo'}</span>
+                      </button>
+
+                      {/* Reset View */}
+                      <button
+                        type="button"
+                        onClick={onResetCamera}
+                        aria-label="Reset View"
+                        className="min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:text-amber-200 text-[11px] sm:text-xs font-semibold text-slate-200 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      >
+                        <Compass className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span className="hidden sm:inline">Reset View</span>
+                        <span className="sm:hidden">Reset</span>
+                      </button>
+                    </>
+                  )}
 
                   {/* Flip Camera */}
                   <button
@@ -442,18 +864,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <RefreshCw className="w-4 h-4 text-slate-400 shrink-0" />
                     <span className="hidden sm:inline">Flip Camera</span>
                     <span className="sm:hidden">Flip</span>
-                  </button>
-
-                  {/* Reset View */}
-                  <button
-                    type="button"
-                    onClick={onResetCamera}
-                    aria-label="Reset View"
-                    className="min-h-[44px] px-1.5 sm:px-3.5 py-1.5 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-400/60 hover:text-amber-200 text-[11px] sm:text-xs font-semibold text-slate-200 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    <Compass className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="hidden sm:inline">Reset View</span>
-                    <span className="sm:hidden">Reset</span>
                   </button>
                 </div>
 
@@ -570,17 +980,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
               </div>
               <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[11px] text-slate-400">MATERIAL</div>
+                <div className="text-[11px] text-slate-400">YOUR ELO</div>
                 <div className="text-lg font-bold text-amber-300 tabular-nums mt-0.5">
-                  {capturedInfo.advantage > 0
-                    ? `+${capturedInfo.advantage}`
-                    : capturedInfo.advantage}
+                  {playerProfile.elo.toLocaleString('en-US')}
                 </div>
               </div>
               <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[11px] text-slate-400">ENGINE</div>
+                <div className="text-[11px] text-slate-400">OPPONENT</div>
                 <div className="text-sm font-bold text-slate-200 mt-1 truncate">
-                  {tierMeta.name}
+                  {oppName}
                 </div>
               </div>
             </div>
@@ -602,21 +1010,28 @@ export const GameHud: React.FC<GameHudProps> = ({
               </button>
               <button
                 type="button"
+                onClick={onResignMatch}
+                className="min-h-[44px] w-full rounded-xl border border-red-900/60 bg-slate-900 hover:border-red-500/60 text-red-300 font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Resign Current Match
+              </button>
+              <button
+                type="button"
                 onClick={onOpenNewGameMenu}
                 className="min-h-[44px] w-full rounded-xl border border-slate-800 bg-slate-950 hover:border-slate-700 text-slate-400 hover:text-slate-200 font-semibold text-xs transition-colors cursor-pointer"
               >
-                Main Menu &amp; Difficulty Setup
+                Main Menu &amp; Lobby
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* GAME OVER / VICTORY / DEFEAT MODAL */}
+      {/* GAME OVER / VICTORY / DEFEAT + ELO & XP PROGRESSION MODAL */}
       {gameState === 'gameover' && gameOverInfo && (
         <div
           className="fixed inset-0 z-40 pointer-events-auto flex items-center justify-center p-4"
-          style={{ backgroundColor: 'rgba(8, 10, 16, 0.85)' }}
+          style={{ backgroundColor: 'rgba(8, 10, 16, 0.86)' }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="gameover-modal-title"
@@ -632,32 +1047,72 @@ export const GameHud: React.FC<GameHudProps> = ({
             >
               {gameOverInfo.title}
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 mb-5">
+            <p className="text-xs sm:text-sm text-slate-300 mb-4">
               {gameOverInfo.subtitle}
             </p>
 
-            <div className="grid grid-cols-3 gap-2.5 mb-6 text-center">
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[11px] text-slate-400">TURNS</div>
-                <div className="text-lg font-bold text-slate-100 tabular-nums mt-0.5">
-                  {movePairs.length}
+            {/* FIDE ELO & XP Progression Summary Card */}
+            <div className="rounded-xl bg-slate-900/95 border border-slate-800 p-4 mb-5 text-left tabular-nums">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="text-xs text-slate-400">
+                    Rank #{playerStanding} • FIDE Rating
+                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-lg font-mono font-bold text-amber-300">
+                      {playerProfile.elo.toLocaleString('en-US')} ELO
+                    </span>
+                    {matchProgression && (
+                      <span
+                        className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
+                          matchProgression.eloDelta >= 0
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-red-500/20 text-red-300'
+                        }`}
+                      >
+                        {matchProgression.eloDelta >= 0
+                          ? `+${matchProgression.eloDelta}`
+                          : matchProgression.eloDelta}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-xs text-slate-400">Rank Badge</span>
+                  <div className="mt-1">
+                    <span
+                      className={`text-xs font-bold px-2 py-0.5 rounded border ${playerTier.borderClass} ${playerTier.bgClass} ${playerTier.textClass}`}
+                    >
+                      {playerDetailedBadge}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[11px] text-slate-400">BALANCE</div>
-                <div className="text-lg font-bold text-amber-300 tabular-nums mt-0.5">
-                  {capturedInfo.advantage > 0
-                    ? `+${capturedInfo.advantage}`
-                    : capturedInfo.advantage}
+
+              <div className="pt-2.5 border-t border-slate-800/80">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-semibold text-slate-200">
+                    Level {playerLvl.level} Progression
+                  </span>
+                  <span className="font-mono text-emerald-300">
+                    +{matchProgression?.xpEarned ?? 0} XP Earned
+                  </span>
                 </div>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-                <div className="text-[11px] text-slate-400">TIER</div>
-                <div className="text-sm font-bold text-slate-200 mt-1 truncate">
-                  {tierMeta.name}
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 transition-all duration-500"
+                    style={{ width: `${playerLvl.progressPercent}%` }}
+                  />
                 </div>
               </div>
             </div>
+
+            {incomingRematchRequest && (
+              <div className="mb-4 p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-xs font-semibold text-emerald-200">
+                Opponent requested a Rematch! Click Rematch to accept.
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2.5">
               <button
@@ -666,14 +1121,21 @@ export const GameHud: React.FC<GameHudProps> = ({
                 onClick={onQuickRematch}
                 className="min-h-[46px] flex-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm transition-colors cursor-pointer"
               >
-                Play Again
+                {matchMode === 'pvp' ? 'Rematch' : 'Play Again'}
+              </button>
+              <button
+                type="button"
+                onClick={onOpenLeaderboard}
+                className="min-h-[46px] px-4 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 font-semibold text-sm transition-colors cursor-pointer"
+              >
+                Standings
               </button>
               <button
                 type="button"
                 onClick={onOpenNewGameMenu}
                 className="min-h-[46px] flex-1 rounded-xl border border-slate-700 bg-slate-900 hover:border-slate-600 text-slate-200 font-semibold text-sm transition-colors cursor-pointer"
               >
-                Change Difficulty
+                Lobby
               </button>
             </div>
           </div>

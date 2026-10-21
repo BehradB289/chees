@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { Chess, Color, Move, PieceSymbol } from 'chess.js';
+import { Chess, type Color, type Move, type PieceSymbol } from 'chess.js';
 import {
   buildProceduralPieceGroup,
   createCoordLabelTexture,
@@ -32,8 +32,15 @@ interface PieceAnimState {
   startZ: number;
   targetX: number;
   targetZ: number;
-  progress: number; // 0..1
+  progress: number; // 0..1 (1 = settled on square)
   isArc: boolean;
+  currentLiftY: number;
+  targetLiftY: number;
+}
+
+function easeOutCubic(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  return 1 - Math.pow(1 - clamped, 3);
 }
 
 export function computeAdaptiveCameraParams(
@@ -45,7 +52,6 @@ export function computeAdaptiveCameraParams(
   const zSign = flipped ? -1 : 1;
 
   if (aspect < 0.65) {
-    // Narrow mobile portrait (e.g. 390x844): zoom out so all 8 files + border frame have breathing room
     const scale = 0.65 / aspect;
     return {
       fov: Math.min(54, 46 * Math.pow(scale, 0.35)),
@@ -62,7 +68,6 @@ export function computeAdaptiveCameraParams(
       posZ: 9.6 * Math.pow(scale, 0.55) * zSign,
     };
   } else {
-    // Desktop / Landscape: frame board cleanly above bottom dock
     return {
       fov: 38,
       posX: 0,
@@ -93,6 +98,12 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
 
   const cameraFlippedRef = useRef(cameraFlipped);
   cameraFlippedRef.current = cameraFlipped;
+
+  const selectedSquareRef = useRef(selectedSquare);
+  selectedSquareRef.current = selectedSquare;
+
+  // Tracks the exact move key that has already been animated so clicking pieces NEVER re-triggers it
+  const lastAnimatedMoveKeyRef = useRef<string>('');
 
   const sceneStateRef = useRef<{
     scene: THREE.Scene;
@@ -149,7 +160,6 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
     canvas.setAttribute('data-testid', 'chess-3d-canvas');
     container.appendChild(canvas);
 
-    // Use RoomEnvironment on hardware GPUs; skip PMREM cubemap shader on headless CPU to avoid ReadPixels stall
     if (!isHeadless) {
       const pmremGenerator = new THREE.PMREMGenerator(renderer);
       scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -157,7 +167,11 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
     }
 
     // 3-Point Studio Lighting Rig
-    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x1e1b18, isHeadless ? 1.45 : 0.9);
+    const hemiLight = new THREE.HemisphereLight(
+      0xdbeafe,
+      0x1e1b18,
+      isHeadless ? 1.45 : 0.9
+    );
     hemiLight.position.set(0, 18, 0);
     scene.add(hemiLight);
 
@@ -380,6 +394,16 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
 
       if (!wasSinglePointer || isTitleScreenRef.current) return;
 
+      const state = sceneStateRef.current;
+      if (state) {
+        // Prevent clicking while a move transition animation is actively in flight
+        for (const anim of state.pieceAnims.values()) {
+          if (anim.progress < 1) {
+            return;
+          }
+        }
+      }
+
       const dx = e.clientX - downX;
       const dy = e.clientY - downY;
       const dist = Math.hypot(dx, dy);
@@ -463,13 +487,16 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
       const state = sceneStateRef.current;
       if (!state) return;
 
-      // In headless mode, render on demand so Playwright screenshots never wait on continuous repaints
       if (isHeadless) {
         if (state.needsRender) {
           state.needsRender = false;
           for (const anim of state.pieceAnims.values()) {
             anim.progress = 1;
-            anim.group.position.set(anim.targetX, 0, anim.targetZ);
+            anim.isArc = false;
+            anim.startX = anim.targetX;
+            anim.startZ = anim.targetZ;
+            anim.currentLiftY = anim.targetLiftY;
+            anim.group.position.set(anim.targetX, anim.currentLiftY, anim.targetZ);
           }
           controls.update();
           renderer.render(scene, camera);
@@ -486,7 +513,7 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
         controls.target.set(0, 0.3, 0);
         controls.update();
       } else if (state.isTransitioningCamera) {
-        const dampFactor = 1 - Math.exp(-6.5 * dt);
+        const dampFactor = easeOutCubic(Math.min(1, dt * 8.5));
         camera.position.lerp(state.desiredCamPos, dampFactor);
         controls.target.lerp(state.desiredTarget, dampFactor);
         controls.update();
@@ -502,15 +529,34 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
         controls.update();
       }
 
+      // Smooth cubic-bezier interpolation for move trajectories and selection lift
       for (const anim of state.pieceAnims.values()) {
-        if (anim.progress < 1) {
-          anim.progress = Math.min(1, anim.progress + dt * 5.2);
-          const t = anim.progress * anim.progress * (3 - 2 * anim.progress);
-          anim.group.position.x = THREE.MathUtils.lerp(anim.startX, anim.targetX, t);
-          anim.group.position.z = THREE.MathUtils.lerp(anim.startZ, anim.targetZ, t);
-          anim.group.position.y = anim.isArc ? Math.sin(t * Math.PI) * 0.65 : 0;
+        // 1. Selection vertical lift (decoupled from horizontal move animation)
+        const liftDiff = anim.targetLiftY - anim.currentLiftY;
+        if (Math.abs(liftDiff) > 0.001) {
+          anim.currentLiftY += liftDiff * easeOutCubic(Math.min(1, dt * 14));
         } else {
-          anim.group.position.set(anim.targetX, 0, anim.targetZ);
+          anim.currentLiftY = anim.targetLiftY;
+        }
+
+        // 2. Horizontal move slide + parabolic arc (clears immediately once progress === 1)
+        if (anim.progress < 1) {
+          anim.progress = Math.min(1, anim.progress + dt * 4.6);
+          const eased = easeOutCubic(anim.progress);
+          const x = THREE.MathUtils.lerp(anim.startX, anim.targetX, eased);
+          const z = THREE.MathUtils.lerp(anim.startZ, anim.targetZ, eased);
+          const arcY = anim.isArc ? Math.sin(anim.progress * Math.PI) * 0.68 : 0;
+          anim.group.position.set(x, arcY + anim.currentLiftY, z);
+
+          if (anim.progress >= 1) {
+            anim.progress = 1;
+            anim.isArc = false;
+            anim.startX = anim.targetX;
+            anim.startZ = anim.targetZ;
+            anim.group.position.set(anim.targetX, anim.currentLiftY, anim.targetZ);
+          }
+        } else {
+          anim.group.position.set(anim.targetX, anim.currentLiftY, anim.targetZ);
         }
       }
 
@@ -558,7 +604,7 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
     }
   }, [cameraFlipped, cameraResetTrigger, isTitleScreen]);
 
-  // Synchronize 3D Chess Pieces with FEN string
+  // Synchronize 3D Chess Pieces strictly on FEN changes (DECOUPLED from selectedSquare!)
   useEffect(() => {
     const state = sceneStateRef.current;
     if (!state) return;
@@ -572,6 +618,19 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
       state.piecesRoot.remove(state.piecesRoot.children[0]);
     }
     state.pieceAnims.clear();
+
+    const moveKey = lastMove ? `${fen}:${lastMove.from}->${lastMove.to}` : '';
+    const shouldAnimateLastMove =
+      !state.isHeadless &&
+      Boolean(lastMove) &&
+      moveKey !== '' &&
+      moveKey !== lastAnimatedMoveKeyRef.current;
+
+    if (shouldAnimateLastMove) {
+      lastAnimatedMoveKeyRef.current = moveKey;
+    }
+
+    const currentSelected = selectedSquareRef.current;
 
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
@@ -596,7 +655,7 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
         let progress = 1;
         let isArc = false;
 
-        if (!state.isHeadless && lastMove && lastMove.to === sq) {
+        if (shouldAnimateLastMove && lastMove && lastMove.to === sq) {
           const fromCoords = squareToWorldCoords(lastMove.from);
           startX = fromCoords.x;
           startZ = fromCoords.z;
@@ -604,8 +663,9 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
           isArc = true;
         }
 
-        const isSelected = selectedSquare === sq;
-        group.position.set(startX, isSelected ? 0.14 : 0, startZ);
+        const isSelected = currentSelected === sq;
+        const initialLiftY = isSelected ? 0.18 : 0;
+        group.position.set(startX, initialLiftY, startZ);
 
         state.piecesRoot.add(group);
         state.pieceAnims.set(sq, {
@@ -617,14 +677,31 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
           startZ,
           targetX: targetCoords.x,
           targetZ: targetCoords.z,
-          progress: isSelected ? 1 : progress,
+          progress,
           isArc,
+          currentLiftY: initialLiftY,
+          targetLiftY: initialLiftY,
         });
       }
     }
 
     state.needsRender = true;
-  }, [fen, lastMove, selectedSquare]);
+  }, [fen, lastMove]);
+
+  // Decoupled Selection Lift Effect: updates ONLY targetLiftY without touching move animations!
+  useEffect(() => {
+    const state = sceneStateRef.current;
+    if (!state) return;
+
+    for (const [sq, anim] of state.pieceAnims.entries()) {
+      anim.targetLiftY = selectedSquare === sq ? 0.18 : 0;
+      if (state.isHeadless) {
+        anim.currentLiftY = anim.targetLiftY;
+        anim.group.position.y = anim.currentLiftY;
+      }
+    }
+    state.needsRender = true;
+  }, [selectedSquare]);
 
   // Synchronize Visual Aids (Selected Gold Ring, Emerald Legal Targets, Crimson Captures, Check Halo)
   useEffect(() => {
@@ -734,7 +811,7 @@ export const ChessScene3D: React.FC<ChessScene3DProps> = ({
         state.highlightsRoot.add(emeraldDisc);
 
         const emeraldRing = new THREE.Mesh(
-          new THREE.RingGeometry(0.24, 0.30, 24),
+          new THREE.RingGeometry(0.24, 0.3, 24),
           new THREE.MeshBasicMaterial({
             color: 0x10b981,
             transparent: true,

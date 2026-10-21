@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { PieceSymbol, Color } from 'chess.js';
+import { type PieceSymbol, type Color } from 'chess.js';
 
 export interface PieceMaterials {
-  whiteBody: THREE.MeshStandardMaterial;
-  whiteTrim: THREE.MeshStandardMaterial;
-  blackBody: THREE.MeshStandardMaterial;
-  blackTrim: THREE.MeshStandardMaterial;
+  whiteBody: THREE.MeshPhysicalMaterial;
+  whiteTrim: THREE.MeshPhysicalMaterial;
+  blackBody: THREE.MeshPhysicalMaterial;
+  blackTrim: THREE.MeshPhysicalMaterial;
   feltPad: THREE.MeshStandardMaterial;
   contactShadow: THREE.MeshBasicMaterial;
 }
@@ -26,10 +26,10 @@ export function createProceduralBoardTextures(maxAnisotropy: number): {
   lightCanvas.width = 128;
   lightCanvas.height = 128;
   const lCtx = lightCanvas.getContext('2d')!;
-  lCtx.fillStyle = '#e8dfd1';
+  lCtx.fillStyle = '#ece3d5';
   lCtx.fillRect(0, 0, 128, 128);
 
-  lCtx.strokeStyle = 'rgba(180, 165, 145, 0.28)';
+  lCtx.strokeStyle = 'rgba(175, 158, 136, 0.28)';
   lCtx.lineWidth = 1.5;
   for (let i = 0; i < 10; i++) {
     lCtx.beginPath();
@@ -52,10 +52,10 @@ export function createProceduralBoardTextures(maxAnisotropy: number): {
   darkCanvas.width = 128;
   darkCanvas.height = 128;
   const dCtx = darkCanvas.getContext('2d')!;
-  dCtx.fillStyle = '#1b202b';
+  dCtx.fillStyle = '#181d27';
   dCtx.fillRect(0, 0, 128, 128);
 
-  dCtx.strokeStyle = 'rgba(212, 168, 83, 0.14)';
+  dCtx.strokeStyle = 'rgba(212, 168, 83, 0.16)';
   dCtx.lineWidth = 1.2;
   for (let i = 0; i < 10; i++) {
     dCtx.beginPath();
@@ -112,8 +112,8 @@ export function createProceduralBoardTextures(maxAnisotropy: number): {
   shadowCanvas.height = 64;
   const sCtx = shadowCanvas.getContext('2d')!;
   const grad = sCtx.createRadialGradient(32, 32, 4, 32, 32, 30);
-  grad.addColorStop(0, 'rgba(0, 0, 0, 0.65)');
-  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.28)');
+  grad.addColorStop(0, 'rgba(0, 0, 0, 0.72)');
+  grad.addColorStop(0.55, 'rgba(0, 0, 0, 0.32)');
   grad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
   sCtx.fillStyle = grad;
   sCtx.fillRect(0, 0, 64, 64);
@@ -125,7 +125,10 @@ export function createProceduralBoardTextures(maxAnisotropy: number): {
 /**
  * Creates a crisp coordinate label texture ('A'-'H', '1'-'8') for board edges.
  */
-export function createCoordLabelTexture(text: string, maxAnisotropy: number): THREE.CanvasTexture {
+export function createCoordLabelTexture(
+  text: string,
+  maxAnisotropy: number
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
@@ -143,41 +146,50 @@ export function createCoordLabelTexture(text: string, maxAnisotropy: number): TH
 }
 
 /**
- * Creates shared PBR materials for White (Warm Pearl Ivory + Brushed Gold)
- * and Black (Polished Obsidian + Brushed Rose-Gold/Bronze) pieces.
- * Enforces >= 0.25 roughness delta between body, metallic trim, and velvet base pad.
+ * Creates shared MeshPhysicalMaterial PBR shaders with clearcoat=1.0 and clearcoatRoughness=0.1
+ * for White (Warm Pearl Ivory + Imperial Gold) and Black (Polished Obsidian + Rose-Gold Bronze).
  */
 export function createPieceMaterials(
   bumpMap: THREE.CanvasTexture,
   shadowMap: THREE.CanvasTexture,
   hasEnvMap = true
 ): PieceMaterials {
-  const whiteBody = new THREE.MeshStandardMaterial({
-    color: 0xf5efe6,
+  const whiteBody = new THREE.MeshPhysicalMaterial({
+    color: 0xf7f1e6,
+    roughness: 0.18,
+    metalness: 0.1,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    reflectivity: 0.9,
+    bumpMap,
+    bumpScale: 0.003,
+  });
+
+  const whiteTrim = new THREE.MeshPhysicalMaterial({
+    color: 0xeab949,
+    roughness: 0.15,
+    metalness: hasEnvMap ? 0.9 : 0.3,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
+  });
+
+  const blackBody = new THREE.MeshPhysicalMaterial({
+    color: 0x202736,
     roughness: 0.22,
-    metalness: 0.12,
+    metalness: hasEnvMap ? 0.45 : 0.22,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    reflectivity: 0.92,
     bumpMap,
     bumpScale: 0.004,
   });
 
-  const whiteTrim = new THREE.MeshStandardMaterial({
-    color: 0xe5b84b,
-    roughness: 0.18,
-    metalness: hasEnvMap ? 0.88 : 0.25,
-  });
-
-  const blackBody = new THREE.MeshStandardMaterial({
-    color: 0x222938,
-    roughness: 0.28,
-    metalness: hasEnvMap ? 0.42 : 0.20,
-    bumpMap,
-    bumpScale: 0.005,
-  });
-
-  const blackTrim = new THREE.MeshStandardMaterial({
-    color: 0xd49442,
-    roughness: 0.18,
-    metalness: hasEnvMap ? 0.85 : 0.25,
+  const blackTrim = new THREE.MeshPhysicalMaterial({
+    color: 0xd99642,
+    roughness: 0.16,
+    metalness: hasEnvMap ? 0.88 : 0.3,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.08,
   });
 
   const feltPad = new THREE.MeshStandardMaterial({
@@ -190,7 +202,7 @@ export function createPieceMaterials(
     map: shadowMap,
     transparent: true,
     depthWrite: false,
-    opacity: 0.55,
+    opacity: 0.6,
   });
 
   return {
@@ -203,17 +215,33 @@ export function createPieceMaterials(
   };
 }
 
-function createLatheProfile(points: Array<[number, number]>, segments = 20): THREE.LatheGeometry {
-  const vec2s = points.map(([r, y]) => new THREE.Vector2(r, y));
-  const geom = new THREE.LatheGeometry(vec2s, segments);
+/**
+ * Uses THREE.SplineCurve sampled at high density to construct museum-grade
+ * continuous Staunton LatheGeometry profiles without faceted kinks.
+ */
+function createSplineLatheProfile(
+  controlPoints: Array<[number, number]>,
+  curveSamples = 32,
+  radialSegments = 28
+): THREE.LatheGeometry {
+  const rawVecs = controlPoints.map(([r, y]) => new THREE.Vector2(r, y));
+  // Keep sharp base pedestal steps for the first 3 points, then smooth spline through the stem & neck
+  const baseSteps = rawVecs.slice(0, 3);
+  const splineControl = rawVecs.slice(2);
+  const spline = new THREE.SplineCurve(splineControl);
+  const sampledSpline = spline.getPoints(curveSamples).map(
+    (pt) => new THREE.Vector2(Math.max(0.008, pt.x), pt.y)
+  );
+  const combined = [...baseSteps, ...sampledSpline];
+  const geom = new THREE.LatheGeometry(combined, radialSegments);
   geom.computeVertexNormals();
   return geom;
 }
 
-// Singleton Geometry Cache so all 32 pieces share pre-computed BufferGeometries (zero runtime GC)
 interface CachedPieceGeometries {
   shadowCircle: THREE.CircleGeometry;
   feltBase: Record<PieceSymbol, THREE.CylinderGeometry>;
+  basePlinthRing: Record<PieceSymbol, THREE.TorusGeometry>;
   lowerRing: Record<PieceSymbol, THREE.TorusGeometry>;
   pawnBody: THREE.LatheGeometry;
   pawnCollar: THREE.TorusGeometry;
@@ -224,19 +252,23 @@ interface CachedPieceGeometries {
   knightPedestal: THREE.LatheGeometry;
   knightRing: THREE.TorusGeometry;
   knightHead: THREE.ExtrudeGeometry;
+  knightManeCrest: THREE.ExtrudeGeometry;
   knightEye: THREE.SphereGeometry;
   bishopBody: THREE.LatheGeometry;
   bishopCollar: THREE.TorusGeometry;
   bishopSash: THREE.TorusGeometry;
+  bishopMitreCut: THREE.BoxGeometry;
   bishopOrb: THREE.SphereGeometry;
   queenBody: THREE.LatheGeometry;
   queenCollar: THREE.TorusGeometry;
   queenCrownRim: THREE.TorusGeometry;
+  queenCoronetSpike: THREE.ConeGeometry;
   queenPearl: THREE.SphereGeometry;
   queenOrb: THREE.SphereGeometry;
   kingBody: THREE.LatheGeometry;
   kingMidCollar: THREE.TorusGeometry;
   kingCrownCollar: THREE.TorusGeometry;
+  kingCrownArch: THREE.TorusGeometry;
   kingOrb: THREE.SphereGeometry;
   kingCrossVert: THREE.BoxGeometry;
   kingCrossHoriz: THREE.BoxGeometry;
@@ -253,145 +285,175 @@ function getPieceGeometries(): CachedPieceGeometries {
     n: 0.33,
     b: 0.33,
     q: 0.36,
-    k: 0.36,
+    k: 0.37,
   };
 
   const feltBase = {} as Record<PieceSymbol, THREE.CylinderGeometry>;
+  const basePlinthRing = {} as Record<PieceSymbol, THREE.TorusGeometry>;
   const lowerRing = {} as Record<PieceSymbol, THREE.TorusGeometry>;
   (['p', 'r', 'n', 'b', 'q', 'k'] as PieceSymbol[]).forEach((t) => {
     const r = radii[t];
-    feltBase[t] = new THREE.CylinderGeometry(r, r * 1.02, 0.04, 18);
-    lowerRing[t] = new THREE.TorusGeometry(r * 0.92, 0.022, 10, 20);
+    feltBase[t] = new THREE.CylinderGeometry(r, r * 1.03, 0.04, 24);
+    basePlinthRing[t] = new THREE.TorusGeometry(r * 0.98, 0.016, 10, 24);
+    lowerRing[t] = new THREE.TorusGeometry(r * 0.89, 0.022, 12, 24);
   });
 
-  // Sculpted Staunton horse profile via ExtrudeGeometry with bevels
+  // Sculpted Staunton Warhorse Knight profile via smooth Bezier curves
   const horseShape = new THREE.Shape();
-  horseShape.moveTo(-0.14, 0.34);
-  horseShape.lineTo(0.14, 0.34);
-  horseShape.quadraticCurveTo(0.18, 0.52, 0.12, 0.72);
-  horseShape.lineTo(0.23, 0.68);
-  horseShape.quadraticCurveTo(0.27, 0.74, 0.24, 0.80);
-  horseShape.lineTo(0.08, 0.98);
-  horseShape.lineTo(0.04, 1.12);
-  horseShape.lineTo(-0.03, 1.02);
-  horseShape.bezierCurveTo(-0.18, 0.96, -0.22, 0.66, -0.14, 0.34);
+  horseShape.moveTo(-0.15, 0.34);
+  horseShape.lineTo(0.15, 0.34);
+  // Muscular chest & throat curve
+  horseShape.bezierCurveTo(0.21, 0.48, 0.18, 0.64, 0.11, 0.74);
+  // Downward-angled muzzle & jaw
+  horseShape.lineTo(0.25, 0.67);
+  horseShape.quadraticCurveTo(0.29, 0.73, 0.25, 0.81);
+  // Bridge of nose up to forehead & pointed ears
+  horseShape.bezierCurveTo(0.18, 0.89, 0.12, 0.96, 0.07, 1.02);
+  horseShape.lineTo(0.04, 1.15);
+  horseShape.lineTo(-0.02, 1.04);
+  // Arching neck & mane back down to pedestal
+  horseShape.bezierCurveTo(-0.19, 0.98, -0.24, 0.66, -0.15, 0.34);
 
   const horseGeom = new THREE.ExtrudeGeometry(horseShape, {
     depth: 0.14,
     bevelEnabled: true,
-    bevelSegments: 3,
+    bevelSegments: 4,
     steps: 1,
-    bevelSize: 0.04,
-    bevelThickness: 0.04,
+    bevelSize: 0.042,
+    bevelThickness: 0.042,
   });
   horseGeom.translate(0, 0, -0.07);
   horseGeom.computeVertexNormals();
 
+  // Sculpted Metallic Mane Ridge along the back of the Knight's neck
+  const maneShape = new THREE.Shape();
+  maneShape.moveTo(-0.13, 0.38);
+  maneShape.bezierCurveTo(-0.22, 0.64, -0.18, 0.95, -0.02, 1.03);
+  maneShape.lineTo(-0.06, 0.98);
+  maneShape.bezierCurveTo(-0.15, 0.86, -0.17, 0.62, -0.1, 0.38);
+
+  const maneGeom = new THREE.ExtrudeGeometry(maneShape, {
+    depth: 0.05,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    steps: 1,
+    bevelSize: 0.015,
+    bevelThickness: 0.015,
+  });
+  maneGeom.translate(0, 0, -0.025);
+  maneGeom.computeVertexNormals();
+
   cachedGeoms = {
-    shadowCircle: new THREE.CircleGeometry(0.44, 18),
+    shadowCircle: new THREE.CircleGeometry(0.45, 24),
     feltBase,
+    basePlinthRing,
     lowerRing,
-    pawnBody: createLatheProfile([
+    pawnBody: createSplineLatheProfile([
       [0.01, 0.04],
       [0.29, 0.04],
-      [0.28, 0.10],
-      [0.22, 0.16],
-      [0.18, 0.24],
-      [0.12, 0.45],
-      [0.10, 0.62],
-      [0.16, 0.66],
-      [0.09, 0.70],
-      [0.01, 0.70],
+      [0.28, 0.11],
+      [0.22, 0.17],
+      [0.17, 0.27],
+      [0.12, 0.46],
+      [0.095, 0.62],
+      [0.15, 0.67],
+      [0.08, 0.71],
+      [0.01, 0.71],
     ]),
-    pawnCollar: new THREE.TorusGeometry(0.125, 0.016, 8, 18),
-    pawnHead: new THREE.SphereGeometry(0.175, 18, 14),
-    rookBody: createLatheProfile([
+    pawnCollar: new THREE.TorusGeometry(0.13, 0.018, 10, 24),
+    pawnHead: new THREE.SphereGeometry(0.18, 24, 18),
+    rookBody: createSplineLatheProfile([
       [0.01, 0.04],
       [0.33, 0.04],
-      [0.31, 0.11],
-      [0.25, 0.18],
-      [0.21, 0.30],
-      [0.18, 0.70],
-      [0.23, 0.80],
-      [0.25, 0.94],
-      [0.16, 0.94],
-      [0.16, 0.86],
+      [0.31, 0.12],
+      [0.25, 0.19],
+      [0.21, 0.32],
+      [0.185, 0.56],
+      [0.175, 0.72],
+      [0.23, 0.81],
+      [0.25, 0.95],
+      [0.16, 0.95],
+      [0.15, 0.86],
       [0.01, 0.86],
     ]),
-    rookNeckRing: new THREE.TorusGeometry(0.21, 0.02, 10, 18),
-    rookMerlon: new THREE.BoxGeometry(0.085, 0.13, 0.085),
-    knightPedestal: createLatheProfile([
+    rookNeckRing: new THREE.TorusGeometry(0.215, 0.022, 10, 24),
+    rookMerlon: new THREE.BoxGeometry(0.088, 0.14, 0.088),
+    knightPedestal: createSplineLatheProfile([
       [0.01, 0.04],
       [0.33, 0.04],
       [0.31, 0.11],
-      [0.25, 0.18],
-      [0.21, 0.32],
+      [0.25, 0.19],
+      [0.21, 0.31],
       [0.19, 0.36],
       [0.01, 0.36],
     ]),
-    knightRing: new THREE.TorusGeometry(0.20, 0.02, 10, 18),
+    knightRing: new THREE.TorusGeometry(0.205, 0.022, 10, 24),
     knightHead: horseGeom,
-    knightEye: new THREE.SphereGeometry(0.028, 10, 10),
-    bishopBody: createLatheProfile([
+    knightManeCrest: maneGeom,
+    knightEye: new THREE.SphereGeometry(0.028, 12, 12),
+    bishopBody: createSplineLatheProfile([
       [0.01, 0.04],
       [0.33, 0.04],
-      [0.31, 0.11],
-      [0.24, 0.19],
-      [0.17, 0.36],
+      [0.31, 0.12],
+      [0.24, 0.2],
+      [0.17, 0.38],
       [0.12, 0.68],
-      [0.18, 0.74],
-      [0.13, 0.79],
-      [0.19, 0.92],
-      [0.15, 1.08],
-      [0.06, 1.18],
-      [0.01, 1.20],
+      [0.18, 0.75],
+      [0.13, 0.8],
+      [0.195, 0.94],
+      [0.16, 1.09],
+      [0.06, 1.19],
+      [0.01, 1.21],
     ]),
-    bishopCollar: new THREE.TorusGeometry(0.16, 0.02, 10, 18),
-    bishopSash: new THREE.TorusGeometry(0.14, 0.014, 8, 18),
-    bishopOrb: new THREE.SphereGeometry(0.052, 12, 12),
-    queenBody: createLatheProfile([
+    bishopCollar: new THREE.TorusGeometry(0.165, 0.022, 10, 24),
+    bishopSash: new THREE.TorusGeometry(0.145, 0.016, 10, 24),
+    bishopMitreCut: new THREE.BoxGeometry(0.16, 0.028, 0.12),
+    bishopOrb: new THREE.SphereGeometry(0.055, 16, 16),
+    queenBody: createSplineLatheProfile([
       [0.01, 0.04],
       [0.36, 0.04],
       [0.34, 0.12],
-      [0.26, 0.22],
-      [0.19, 0.42],
-      [0.14, 0.78],
+      [0.26, 0.23],
+      [0.19, 0.44],
+      [0.135, 0.78],
       [0.21, 0.86],
-      [0.15, 0.93],
-      [0.23, 1.16],
-      [0.16, 1.26],
-      [0.01, 1.28],
+      [0.15, 0.94],
+      [0.235, 1.17],
+      [0.17, 1.27],
+      [0.01, 1.29],
     ]),
-    queenCollar: new THREE.TorusGeometry(0.195, 0.022, 10, 20),
-    queenCrownRim: new THREE.TorusGeometry(0.21, 0.018, 10, 20),
-    queenPearl: new THREE.SphereGeometry(0.036, 10, 10),
-    queenOrb: new THREE.SphereGeometry(0.055, 12, 12),
-    kingBody: createLatheProfile([
+    queenCollar: new THREE.TorusGeometry(0.195, 0.024, 12, 24),
+    queenCrownRim: new THREE.TorusGeometry(0.215, 0.02, 12, 24),
+    queenCoronetSpike: new THREE.ConeGeometry(0.036, 0.11, 10),
+    queenPearl: new THREE.SphereGeometry(0.034, 12, 12),
+    queenOrb: new THREE.SphereGeometry(0.06, 16, 16),
+    kingBody: createSplineLatheProfile([
       [0.01, 0.04],
       [0.37, 0.04],
       [0.35, 0.13],
-      [0.27, 0.23],
-      [0.20, 0.46],
-      [0.15, 0.86],
+      [0.27, 0.24],
+      [0.2, 0.48],
+      [0.145, 0.86],
       [0.23, 0.95],
-      [0.17, 1.03],
-      [0.25, 1.28],
-      [0.19, 1.38],
-      [0.01, 1.40],
+      [0.17, 1.04],
+      [0.255, 1.29],
+      [0.19, 1.39],
+      [0.01, 1.41],
     ]),
-    kingMidCollar: new THREE.TorusGeometry(0.215, 0.024, 10, 20),
-    kingCrownCollar: new THREE.TorusGeometry(0.235, 0.022, 10, 20),
-    kingOrb: new THREE.SphereGeometry(0.06, 12, 12),
-    kingCrossVert: new THREE.BoxGeometry(0.048, 0.22, 0.048),
-    kingCrossHoriz: new THREE.BoxGeometry(0.16, 0.048, 0.048),
+    kingMidCollar: new THREE.TorusGeometry(0.215, 0.025, 12, 24),
+    kingCrownCollar: new THREE.TorusGeometry(0.24, 0.022, 12, 24),
+    kingCrownArch: new THREE.TorusGeometry(0.12, 0.016, 10, 20, Math.PI),
+    kingOrb: new THREE.SphereGeometry(0.062, 16, 16),
+    kingCrossVert: new THREE.BoxGeometry(0.05, 0.23, 0.05),
+    kingCrossHoriz: new THREE.BoxGeometry(0.17, 0.05, 0.05),
   };
 
   return cachedGeoms;
 }
 
 /**
- * Builds a composite multi-part 3D Staunton chess piece (`THREE.Group` with 5 to 11 distinct parts)
- * using shared cached geometries and pivoted at bottom-center (`y = 0`).
+ * Builds a museum-grade composite 3D Staunton chess piece (`THREE.Group`)
+ * using spline-lathed geometries, clearcoat physical materials, and metallic collars.
  */
 export function buildProceduralPieceGroup(
   type: PieceSymbol,
@@ -415,10 +477,16 @@ export function buildProceduralPieceGroup(
   feltMesh.position.y = 0.02;
   group.add(feltMesh);
 
-  // Part 3: Lower metallic trim ring
+  // Part 3: Base metallic plinth rim at y = 0.048
+  const plinthRing = new THREE.Mesh(g.basePlinthRing[type], trimMat);
+  plinthRing.rotation.x = Math.PI / 2;
+  plinthRing.position.y = 0.048;
+  group.add(plinthRing);
+
+  // Part 4: Lower metallic torus collar at y = 0.135
   const lowerRing = new THREE.Mesh(g.lowerRing[type], trimMat);
   lowerRing.rotation.x = Math.PI / 2;
-  lowerRing.position.y = 0.13;
+  lowerRing.position.y = 0.135;
   lowerRing.castShadow = castShadow;
   group.add(lowerRing);
 
@@ -434,7 +502,7 @@ export function buildProceduralPieceGroup(
     group.add(upperCollar);
 
     const headSphere = new THREE.Mesh(g.pawnHead, bodyMat);
-    headSphere.position.y = 0.84;
+    headSphere.position.y = 0.85;
     headSphere.castShadow = castShadow;
     headSphere.receiveShadow = true;
     group.add(headSphere);
@@ -446,7 +514,7 @@ export function buildProceduralPieceGroup(
 
     const neckRing = new THREE.Mesh(g.rookNeckRing, trimMat);
     neckRing.rotation.x = Math.PI / 2;
-    neckRing.position.y = 0.78;
+    neckRing.position.y = 0.79;
     group.add(neckRing);
 
     for (let i = 0; i < 6; i++) {
@@ -454,7 +522,7 @@ export function buildProceduralPieceGroup(
       const merlon = new THREE.Mesh(g.rookMerlon, bodyMat);
       merlon.position.set(
         Math.cos(angle) * 0.195,
-        0.99,
+        0.995,
         Math.sin(angle) * 0.195
       );
       merlon.rotation.y = -angle;
@@ -472,15 +540,26 @@ export function buildProceduralPieceGroup(
     pedestalRing.position.y = 0.35;
     group.add(pedestalRing);
 
+    const facingYaw = color === 'w' ? Math.PI / 2 : -Math.PI / 2;
+
     const horseMesh = new THREE.Mesh(g.knightHead, bodyMat);
-    horseMesh.rotation.y = color === 'w' ? Math.PI / 2 : -Math.PI / 2;
+    horseMesh.rotation.y = facingYaw;
     horseMesh.castShadow = castShadow;
     horseMesh.receiveShadow = true;
     group.add(horseMesh);
 
-    const eyeStud = new THREE.Mesh(g.knightEye, trimMat);
-    eyeStud.position.set(0, 0.88, color === 'w' ? -0.09 : 0.09);
-    group.add(eyeStud);
+    const maneMesh = new THREE.Mesh(g.knightManeCrest, trimMat);
+    maneMesh.rotation.y = facingYaw;
+    group.add(maneMesh);
+
+    const zEye = color === 'w' ? -0.1 : 0.1;
+    const eyeLeft = new THREE.Mesh(g.knightEye, trimMat);
+    eyeLeft.position.set(-0.075, 0.89, zEye);
+    group.add(eyeLeft);
+
+    const eyeRight = new THREE.Mesh(g.knightEye, trimMat);
+    eyeRight.position.set(0.075, 0.89, zEye);
+    group.add(eyeRight);
   } else if (type === 'b') {
     const bodyMesh = new THREE.Mesh(g.bishopBody, bodyMat);
     bodyMesh.castShadow = castShadow;
@@ -497,8 +576,13 @@ export function buildProceduralPieceGroup(
     mitreSash.position.y = 0.98;
     group.add(mitreSash);
 
+    const mitreCutAccent = new THREE.Mesh(g.bishopMitreCut, trimMat);
+    mitreCutAccent.position.set(0, 1.06, color === 'w' ? -0.08 : 0.08);
+    mitreCutAccent.rotation.x = color === 'w' ? Math.PI / 4 : -Math.PI / 4;
+    group.add(mitreCutAccent);
+
     const finialOrb = new THREE.Mesh(g.bishopOrb, trimMat);
-    finialOrb.position.y = 1.24;
+    finialOrb.position.y = 1.25;
     finialOrb.castShadow = castShadow;
     group.add(finialOrb);
   } else if (type === 'q') {
@@ -514,22 +598,25 @@ export function buildProceduralPieceGroup(
 
     const crownRim = new THREE.Mesh(g.queenCrownRim, trimMat);
     crownRim.rotation.x = Math.PI / 2;
-    crownRim.position.y = 1.20;
+    crownRim.position.y = 1.2;
     group.add(crownRim);
 
     for (let i = 0; i < 8; i++) {
       const angle = (i * Math.PI * 2) / 8;
-      const pearl = new THREE.Mesh(g.queenPearl, trimMat);
-      pearl.position.set(
-        Math.cos(angle) * 0.20,
-        1.27,
-        Math.sin(angle) * 0.20
-      );
+      const rx = Math.cos(angle) * 0.195;
+      const rz = Math.sin(angle) * 0.195;
+
+      const spike = new THREE.Mesh(g.queenCoronetSpike, trimMat);
+      spike.position.set(rx, 1.26, rz);
+      group.add(spike);
+
+      const pearl = new THREE.Mesh(g.queenPearl, bodyMat);
+      pearl.position.set(rx, 1.32, rz);
       group.add(pearl);
     }
 
     const topOrb = new THREE.Mesh(g.queenOrb, trimMat);
-    topOrb.position.y = 1.32;
+    topOrb.position.y = 1.34;
     group.add(topOrb);
   } else if (type === 'k') {
     const bodyMesh = new THREE.Mesh(g.kingBody, bodyMat);
@@ -544,20 +631,29 @@ export function buildProceduralPieceGroup(
 
     const crownCollar = new THREE.Mesh(g.kingCrownCollar, trimMat);
     crownCollar.rotation.x = Math.PI / 2;
-    crownCollar.position.y = 1.30;
+    crownCollar.position.y = 1.3;
     group.add(crownCollar);
 
+    const arch1 = new THREE.Mesh(g.kingCrownArch, trimMat);
+    arch1.position.y = 1.34;
+    group.add(arch1);
+
+    const arch2 = new THREE.Mesh(g.kingCrownArch, trimMat);
+    arch2.rotation.y = Math.PI / 2;
+    arch2.position.y = 1.34;
+    group.add(arch2);
+
     const crossOrb = new THREE.Mesh(g.kingOrb, trimMat);
-    crossOrb.position.y = 1.43;
+    crossOrb.position.y = 1.46;
     group.add(crossOrb);
 
     const crossVert = new THREE.Mesh(g.kingCrossVert, trimMat);
-    crossVert.position.y = 1.56;
+    crossVert.position.y = 1.59;
     crossVert.castShadow = castShadow;
     group.add(crossVert);
 
     const crossHoriz = new THREE.Mesh(g.kingCrossHoriz, trimMat);
-    crossHoriz.position.y = 1.58;
+    crossHoriz.position.y = 1.61;
     crossHoriz.castShadow = castShadow;
     group.add(crossHoriz);
   }

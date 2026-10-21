@@ -11,7 +11,10 @@ class ChessSoundEngine {
     if (!this.enabled || typeof window === 'undefined') return null;
     try {
       if (!this.ctx) {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
         if (AudioCtx) {
           this.ctx = new AudioCtx();
         }
@@ -49,7 +52,6 @@ class ChessSoundEngine {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Warm wooden/marble thud + subtle metallic click
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'triangle';
@@ -70,7 +72,6 @@ class ChessSoundEngine {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Heavy resonant impact + crisp high transient
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.type = 'sawtooth';
@@ -103,7 +104,7 @@ class ChessSoundEngine {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    const notes = [587.33, 880]; // D5 -> A5 urgent chime
+    const notes = [587.33, 880];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -141,6 +142,27 @@ class ChessSoundEngine {
       gain.connect(ctx.destination);
       osc.start(start);
       osc.stop(start + 0.23);
+    });
+  }
+
+  public playEmote(): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = [659.25, 880.0];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const start = now + idx * 0.05;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.15, start + 0.08);
+      gain.gain.setValueAtTime(0.1, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.11);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.12);
     });
   }
 
